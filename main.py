@@ -97,7 +97,22 @@ def health():
     description="Returns all tasks currently stored in SQLite."
 )
 def get_tasks():
-    return []
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT id, title, done FROM tasks")
+    rows = cursor.fetchall()
+
+    conn.close()
+
+    return [
+        {
+            "id": row[0],
+            "title": row[1],
+            "done": bool(row[2])
+        }
+        for row in rows
+    ]
 
 
 @app.get(
@@ -106,10 +121,28 @@ def get_tasks():
     description="Returns a single task by its ID."
 )
 def get_task(task_id: int):
-    raise HTTPException(
-        status_code=404,
-        detail=f"Task {task_id} not found"
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT id, title, done FROM tasks WHERE id = ?",
+        (task_id,)
     )
+    row = cursor.fetchone()
+
+    conn.close()
+
+    if row is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Task {task_id} not found"
+        )
+
+    return {
+        "id": row[0],
+        "title": row[1],
+        "done": bool(row[2])
+    }
 
 
 @app.post(
@@ -119,10 +152,30 @@ def get_task(task_id: int):
     description="Creates a new task with a title."
 )
 def create_task(task: TaskCreate):
-    raise HTTPException(
-        status_code=501,
-        detail="Not implemented in Stage 0"
+    if not task.title.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Title cannot be empty"
+        )
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "INSERT INTO tasks (title, done) VALUES (?, ?)",
+        (task.title, 0)
     )
+
+    task_id = cursor.lastrowid
+
+    conn.commit()
+    conn.close()
+
+    return {
+        "id": task_id,
+        "title": task.title,
+        "done": False
+    }
 
 
 @app.put(
@@ -131,10 +184,52 @@ def create_task(task: TaskCreate):
     description="Updates the title and/or completion status of a task."
 )
 def update_task(task_id: int, task: TaskUpdate):
-    raise HTTPException(
-        status_code=501,
-        detail="Not implemented in Stage 0"
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT id, title, done FROM tasks WHERE id = ?",
+        (task_id,)
     )
+    row = cursor.fetchone()
+
+    if row is None:
+        conn.close()
+        raise HTTPException(
+            status_code=404,
+            detail=f"Task {task_id} not found"
+        )
+
+    current_title = row[1]
+    current_done = bool(row[2])
+
+    new_title = task.title if task.title is not None else current_title
+    new_done = task.done if task.done is not None else current_done
+
+    if not new_title.strip():
+        conn.close()
+        raise HTTPException(
+            status_code=400,
+            detail="Title cannot be empty"
+        )
+
+    cursor.execute(
+        """
+        UPDATE tasks
+        SET title = ?, done = ?
+        WHERE id = ?
+        """,
+        (new_title, new_done, task_id)
+    )
+
+    conn.commit()
+    conn.close()
+
+    return {
+        "id": task_id,
+        "title": new_title,
+        "done": new_done
+    }
 
 
 @app.delete(
@@ -144,7 +239,27 @@ def update_task(task_id: int, task: TaskUpdate):
     description="Deletes a task by its ID."
 )
 def delete_task(task_id: int):
-    raise HTTPException(
-        status_code=501,
-        detail="Not implemented in Stage 0"
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT id FROM tasks WHERE id = ?",
+        (task_id,)
     )
+
+    if cursor.fetchone() is None:
+        conn.close()
+        raise HTTPException(
+            status_code=404,
+            detail=f"Task {task_id} not found"
+        )
+
+    cursor.execute(
+        "DELETE FROM tasks WHERE id = ?",
+        (task_id,)
+    )
+
+    conn.commit()
+    conn.close()
+
+    return None
